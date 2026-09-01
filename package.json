@@ -1,0 +1,36 @@
+{
+    "name": "dormitory-system",
+    "private": true,
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "dev": "bun --filter \"*\" dev",
+        "dev:api": "bun --filter @dormitory/api dev",
+        "dev:web": "bun --filter @dormitory/web dev",
+        "build": "bun --filter \"*\" build",
+        "db:up": "docker compose up -d",
+        "db:down": "docker compose down",
+        "prisma:generate": "bun --filter @dormitory/api prisma generate",
+        "prisma:migrate": "bun --filter @dormitory/api prisma migrate dev"
+    },
+    "devDependencies": {
+        "@nestjs/cli": "^12.0.0",
+        "@nestjs/schematics": "^12.0.0",
+        "@types/node": "^26.4.0",
+        "prisma": "^8.0.0-rc.12",
+        "typescript": "^7.0.2"
+    },
+    "dependencies": {
+        "@nestjs/common": "^12.0.1",
+        "@nestjs/config": "^12.0.0",
+        "@nestjs/core": "^12.0.1",
+        "@nestjs/platform-express": "^12.0.1",
+        "@prisma/client": "^7.10.0",
+        "class-transformer": "^0.5.1",
+        "class-validator": "^0.15.1",
+        "ioredis": "^6.0.0",
+        "reflect-metadata": "^0.2.2",
+        "rxjs": "^7.8.2"
+    }
+}

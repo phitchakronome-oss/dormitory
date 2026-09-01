@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User / Admin Account
+enum Role {
+  ADMIN
+  STAFF
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  name      String
+  role      Role     @default(STAFF)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// อาคาร (Building)
+model Building {
+  id          String   @id @default(uuid())
+  name        String
+  totalFloors Int      @default(1)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rooms Room[]
+
+  @@map("buildings")
+}
+
+// ประเภทห้องพัก
+enum RoomType {
+  FAN
+  AIR_CONDITIONER
+}
+
+// สถานะห้องพัก
+enum RoomStatus {
+  VACANT       // ว่าง
+  OCCUPIED     // มีผู้เช่า
+  MAINTENANCE  // ปิดปรับปรุง
+}
+
+// ห้องพัก (Room)
+model Room {
+  id          String     @id @default(uuid())
+  buildingId  String
+  roomNumber  String     // เช่น 101, 102
+  floor       Int
+  type        RoomType   @default(FAN)
+  status      RoomStatus @default(VACANT)
+  monthlyRent Decimal    @db.Decimal(10, 2) // ค่าเช่ารายเดือน
+  deposit     Decimal    @default(0) @db.Decimal(10, 2) // ค่าประกัน
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  building      Building       @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  contracts     Contract[]
+  meterReadings MeterReading[]
+  invoices      Invoice[]
+
+  @@unique([buildingId, roomNumber])
+  @@map("rooms")
+}
+
+// ข้อมูลผู้เช่า (Tenant)
+model Tenant {
+  id               String   @id @default(uuid())
+  firstName        String
+  lastName         String
+  idCardNumber     String?  @unique // เลขบัตรประชาชน
+  phone            String   // เบอร์โทรศัพท์
+  lineId           String?  // LINE ID
+  emergencyContact String?  // ชื่อผู้ติดต่อฉุกเฉิน
+  emergencyPhone   String?  // เบอร์ติดต่อฉุกเฉิน
+  address          String?  // ที่อยู่ตามทะเบียนบ้าน
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  contracts Contract[]
+  invoices  Invoice[]
+
+  @@map("tenants")
+}
+
+// สถานะสัญญาเช่า
+enum ContractStatus {
+  ACTIVE     // กำลังเช่า
+  EXPIRED    // หมดสัญญา
+  TERMINATED // ยกเลิกสัญญาก่อนกำหนด
+}
+
+// สัญญาเช่า (Contract / Lease)
+model Contract {
+  id                String         @id @default(uuid())
+  contractNumber    String         @unique // เลขที่สัญญา เช่น CT-2026-001
+  roomId            String
+  tenantId          String
+  startDate         DateTime
+  endDate           DateTime
+  depositAmount     Decimal        @db.Decimal(10, 2) // ค่าประกัน
+  advanceRentAmount Decimal        @db.Decimal(10, 2) // ค่าเช่าล่วงหน้า
+  status            ContractStatus @default(ACTIVE)
+  note              String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  invoices Invoice[]
+
+  @@map("contracts")
+}
+
+// จดมิเตอร์น้ำ-ไฟประจำเดือน (Utility & Meter Reading)
+model MeterReading {
+  id                   String   @id @default(uuid())
+  roomId               String
+  billingMonth         String   // รอบเดือน เช่น "2026-09"
+  
+  // มิเตอร์น้ำ
+  waterPrevUnit        Float    // เลขมิเตอร์น้ำครั้งก่อน
+  waterCurrUnit        Float    // เลขมิเตอร์น้ำครั้งนี้
+  waterUnitRate        Decimal  @db.Decimal(10, 2) // ราคาต่อน้ำ 1 หน่วย
+  
+  // มิเตอร์ไฟ
+  electricityPrevUnit  Float    // เลขมิเตอร์ไฟครั้งก่อน
+  electricityCurrUnit  Float    // เลขมิเตอร์ไฟครั้งนี้
+  electricityUnitRate  Decimal  @db.Decimal(10, 2) // ราคาต่อไฟ 1 หน่วย
+  
+  readingDate          DateTime @default(now())
+  recordedBy           String?  // ผู้บันทึก
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  room     Room      @relation(fields: [roomId], references: [id])
+  invoices Invoice[]
+
+  @@unique([roomId, billingMonth])
+  @@map("meter_readings")
+}
+
+// สถานะบิล / ใบแจ้งหนี้
+enum InvoiceStatus {
+  PENDING   // รอชำระ
+  PAID      // ชำระแล้ว
+  OVERDUE   // เกินกำหนด
+  CANCELLED // ยกเลิก
+}
+
+// ใบแจ้งหนี้และค่าเช่า (Invoice & Billing)
+model Invoice {
+  id              String        @id @default(uuid())
+  invoiceNumber   String        @unique // เช่น INV-202609-101
+  billingMonth    String        // เช่น "2026-09"
+  contractId      String?
+  roomId          String
+  tenantId        String
+  meterReadingId  String?
+
+  // รายการแจกแจงยอดเงิน
+  roomRent        Decimal       @db.Decimal(10, 2) // ค่าห้อง
+  waterUnits      Float         @default(0)        // จำนวนหน่วยน้ำ
+  waterCost       Decimal       @default(0) @db.Decimal(10, 2) // ค่าน้ำรวม
+  electricityUnits Float        @default(0)        // จำนวนหน่วยไฟ
+  electricityCost Decimal       @default(0) @db.Decimal(10, 2) // ค่าไฟรวม
+  commonFee       Decimal       @default(0) @db.Decimal(10, 2) // ค่าส่วนกลาง
+  otherFee        Decimal       @default(0) @db.Decimal(10, 2) // ค่าอื่นๆ (เช่น ค่าที่จอดรถ)
+  discount        Decimal       @default(0) @db.Decimal(10, 2) // ส่วนลด
+  totalAmount     Decimal       @db.Decimal(10, 2) // ยอดสุทธิ
+
+  status          InvoiceStatus @default(PENDING)
+  dueDate         DateTime      // วันครบกำหนดชำระ
+  paidAt          DateTime?     // วันที่ชำระเงิน
+  paymentSlipUrl  String?       // ลิงก์สลิปโอนเงิน
+  note            String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  contract     Contract?     @relation(fields: [contractId], references: [id])
+  room         Room          @relation(fields: [roomId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  meterReading MeterReading? @relation(fields: [meterReadingId], references: [id])
+  payments     Payment[]
+
+  @@map("invoices")
+}
+
+// ประวัติการรับชำระเงิน (Payment)
+enum PaymentMethod {
+  TRANSFER // โอนเงิน
+  CASH     // เงินสด
+  QR       // QR PromptPay
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  invoiceId     String
+  amount        Decimal       @db.Decimal(10, 2)
+  method        PaymentMethod @default(TRANSFER)
+  slipUrl       String?
+  paidAt        DateTime      @default(now())
+  receivedBy    String?
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
