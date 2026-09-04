@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class RecordMeterDto {
   @IsString()
@@ -26,16 +27,33 @@ export class RecordMeterDto {
   recordedBy?: string;
 }
 
+export class MeterReadingItemDto {
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @IsNumber()
+  waterCurrUnit: number;
+
+  @IsNumber()
+  electricityCurrUnit: number;
+
+  @IsNumber()
+  @IsOptional()
+  waterUnitRate?: number;
+
+  @IsNumber()
+  @IsOptional()
+  electricityUnitRate?: number;
+}
+
 export class BatchMeterDto {
   @IsString()
   @IsNotEmpty()
   billingMonth: string;
 
-  readings: {
-    roomId: string;
-    waterCurrUnit: number;
-    electricityCurrUnit: number;
-    waterUnitRate?: number;
-    electricityUnitRate?: number;
-  }[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MeterReadingItemDto)
+  readings: MeterReadingItemDto[];
 }

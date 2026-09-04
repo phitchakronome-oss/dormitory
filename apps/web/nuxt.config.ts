@@ -11,8 +11,10 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
-  routeRules: {
-    '/': { prerender: true }
+  runtimeConfig: {
+    public: {
+      apiBase: 'http://localhost:4000/api'
+    }
   },
 
   compatibilityDate: '2026-06-30',

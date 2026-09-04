@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RecordMeterDto, BatchMeterDto } from './dto/meter.dto';
 
@@ -19,8 +19,19 @@ export class MeterService {
 
   // Record single meter reading
   async recordMeter(dto: RecordMeterDto) {
-    const room = await this.prisma.room.findUnique({ where: { id: dto.roomId } });
+    const room = await this.prisma.room.findUnique({
+      where: { id: dto.roomId },
+      include: {
+        invoices: {
+          where: { billingMonth: dto.billingMonth, status: { not: 'CANCELLED' } },
+        },
+      },
+    });
     if (!room) throw new NotFoundException('Room not found');
+
+    if (room.invoices.length > 0) {
+      throw new BadRequestException('ห้องนี้ได้ออกบิลประจำเดือนแล้ว ไม่สามารถแก้ไขเลขมิเตอร์ได้');
+    }
 
     const prev = await this.getPreviousReading(dto.roomId, dto.billingMonth);
     const waterPrevUnit = prev ? prev.waterCurrUnit : 0;
@@ -58,6 +69,15 @@ export class MeterService {
   async batchRecordMeters(dto: BatchMeterDto) {
     const results = [];
     for (const item of dto.readings) {
+      const existingInvoice = await this.prisma.invoice.findFirst({
+        where: {
+          roomId: item.roomId,
+          billingMonth: dto.billingMonth,
+          status: { not: 'CANCELLED' },
+        },
+      });
+      if (existingInvoice) continue;
+
       const prev = await this.getPreviousReading(item.roomId, dto.billingMonth);
       const res = await this.prisma.meterReading.upsert({
         where: {
@@ -71,16 +91,16 @@ export class MeterService {
           billingMonth: dto.billingMonth,
           waterPrevUnit: prev ? prev.waterCurrUnit : 0,
           waterCurrUnit: item.waterCurrUnit,
-          waterUnitRate: item.waterUnitRate || 18,
+          waterUnitRate: item.waterUnitRate || 17,
           electricityPrevUnit: prev ? prev.electricityCurrUnit : 0,
           electricityCurrUnit: item.electricityCurrUnit,
-          electricityUnitRate: item.electricityUnitRate || 8,
+          electricityUnitRate: item.electricityUnitRate || 7,
         },
         update: {
           waterCurrUnit: item.waterCurrUnit,
-          waterUnitRate: item.waterUnitRate || 18,
+          waterUnitRate: item.waterUnitRate || 17,
           electricityCurrUnit: item.electricityCurrUnit,
-          electricityUnitRate: item.electricityUnitRate || 8,
+          electricityUnitRate: item.electricityUnitRate || 7,
         },
       });
       results.push(res);
@@ -101,18 +121,37 @@ export class MeterService {
         meterReadings: {
           where: { billingMonth },
         },
+        invoices: {
+          where: { billingMonth },
+        },
       },
       orderBy: [{ buildingId: 'asc' }, { floor: 'asc' }, { roomNumber: 'asc' }],
     });
 
-    return rooms.map((room) => {
-      const reading = room.meterReadings[0] || null;
-      const tenant = room.contracts[0]?.tenant || null;
-      return {
-        room,
-        tenant,
-        reading,
-      };
-    });
+    return Promise.all(
+      rooms.map(async (room) => {
+        const reading = room.meterReadings[0] || null;
+        const tenant = room.contracts[0]?.tenant || null;
+        const activeInvoice = room.invoices.find((i) => i.status !== 'CANCELLED') || null;
+
+        // Find previous reading before this billing month
+        const prevReading = await this.prisma.meterReading.findFirst({
+          where: {
+            roomId: room.id,
+            billingMonth: { lt: billingMonth },
+          },
+          orderBy: { billingMonth: 'desc' },
+        });
+
+        return {
+          room,
+          tenant,
+          reading,
+          prevReading,
+          hasInvoice: !!activeInvoice,
+          invoiceNumber: activeInvoice?.invoiceNumber || null,
+        };
+      }),
+    );
   }
 }
